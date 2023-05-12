@@ -8,7 +8,7 @@ Currently only 1 controller is supported and only following metrics are collecte
 * Controller battery status and temperature
 * Number of defunct drives
 * Number of logical drives (total / failed / degraded) 
-* SMART attributes for all drives connecter to the controller.
+* SMART attributes for all drives connected to the controller.
 
 It should be straightforward to add support for multiple controllers and additional metrics if required.
 
