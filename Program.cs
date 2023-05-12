@@ -15,7 +15,7 @@ internal class Program
     }
     static MemoryStream? GetArcconfOutput(string args)
     {
-        Process process = new Process
+        Process process = new()
         {
             StartInfo = new ProcessStartInfo
             {
@@ -60,7 +60,7 @@ internal class Program
         }
         else
         {
-            StreamReader arcconf_reader = new StreamReader(arcconf_output);
+            StreamReader arcconf_reader = new(arcconf_output);
             while (!arcconf_reader.EndOfStream)
             {
                 string line = arcconf_reader.ReadLine() ?? "";
@@ -147,31 +147,32 @@ internal class Program
         }
         else
         {
-            StreamReader arcconf_reader = new StreamReader(arcconf_output);
-            while (!arcconf_reader.EndOfStream)
+            StreamReader arcconf_reader = new(arcconf_output);
+            XmlReaderSettings xmlreadersettings = new()
             {
-                XmlReaderSettings xmlreadersettings = new XmlReaderSettings();
-                xmlreadersettings.ConformanceLevel = ConformanceLevel.Fragment;
-                xmlreadersettings.DtdProcessing = DtdProcessing.Prohibit;
-                XmlReader reader;
-                try
-                {
-                    reader = XmlReader.Create(arcconf_reader, xmlreadersettings);
-                }
-                catch (Exception ex)
-                {
-                    System.Console.Error.WriteLine("Failed to create XML reader: " + ex.Message);
-                    return 1;
-                }
-                while (reader.Read())
-                {
-                    if ((reader.Name == "PhysicalDriveSmartStats") && reader.IsStartElement())
-                    {
-                        ProcessDriveSmartInfo(reader, reader["id"]);
-                    }
-                }
-                reader.Close();
+                ConformanceLevel = ConformanceLevel.Fragment,
+                DtdProcessing = DtdProcessing.Prohibit
+            };
+            XmlReader reader;
+            try
+            {
+                reader = XmlReader.Create(arcconf_reader, xmlreadersettings);
             }
+            catch (Exception ex)
+            {
+                System.Console.Error.WriteLine("Failed to create XML reader: " + ex.Message);
+                arcconf_reader.Close();
+                arcconf_output.Close();
+                return 1;
+            }
+            while (reader.Read())
+            {
+                if ((reader.Name == "PhysicalDriveSmartStats") && reader.IsStartElement())
+                {
+                    ProcessDriveSmartInfo(reader, reader["id"]);
+                }
+            }
+            reader.Close();
             arcconf_reader.Close();
             arcconf_output.Close();
             return 0;
