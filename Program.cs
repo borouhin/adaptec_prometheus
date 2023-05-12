@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using System.Diagnostics;
+using System.Text;
 using System.Xml;
 
 namespace adaptec_prometheus;
@@ -8,13 +9,11 @@ internal class Program
 {
     static string arcconf_path = "/usr/local/bin/arcconf";
     delegate void LineFunc(string param, string value);
-    static void Main(string[] args)
+    static int Main(string[] args)
     {
-        GetMainInfo();
-        GetSmartInfo();
-        return;
+        return GetMainInfo() | GetSmartInfo();
     }
-    static StreamReader? GetArcconfOutput(string args)
+    static MemoryStream? GetArcconfOutput(string args)
     {
         Process process = new Process
         {
@@ -24,7 +23,8 @@ internal class Program
                 Arguments = args,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                RedirectStandardError = true
             }
         };
         try
@@ -36,37 +36,50 @@ internal class Program
             System.Console.Error.WriteLine("Failed to start arcconf: " + ex.Message);
             return null;
         }
-        return process.StandardOutput;
+        bool exited = process.WaitForExit(30000);
+        if (!exited)
+        {
+            System.Console.Error.WriteLine("arcconf timed out");
+            return null;
+        }
+        if (process.ExitCode != 0)
+        {
+            System.Console.Error.WriteLine("arcconf exited with code {0}", process.ExitCode);
+            return null;
+        }
+        return new MemoryStream(Encoding.UTF8.GetBytes(process.StandardOutput.ReadToEnd().ToArray()));
     }
-    static void GetMainInfo()
+    static int GetMainInfo()
     {
-        StreamReader? arcconf_output = GetArcconfOutput("getconfig 1");
+        MemoryStream? arcconf_output = GetArcconfOutput("getconfig 1");
         if (arcconf_output == null)
         {
             System.Console.WriteLine("adaptec_raid_is_optimal 0");
             System.Console.Error.WriteLine("Failed to get arcconf getconfig output");
-            return;
+            return 1;
         }
         else
         {
-            while (!arcconf_output.EndOfStream)
+            StreamReader arcconf_reader = new StreamReader(arcconf_output);
+            while (!arcconf_reader.EndOfStream)
             {
-                string line = arcconf_output.ReadLine() ?? "";
+                string line = arcconf_reader.ReadLine() ?? "";
                 switch (line.Trim())
                 {
                     case "Controller information":
-                        ProcessSection(arcconf_output, ProcessControllerInfo);
+                        ProcessSection(arcconf_reader, ProcessControllerInfo);
                         break;
                     case "RAID Properties":
-                        ProcessSection(arcconf_output, ProcessLDInfo);
+                        ProcessSection(arcconf_reader, ProcessLDInfo);
                         break;
                     case "Controller Battery Information":
-                        ProcessSection(arcconf_output, ProcessBatteryInfo);
+                        ProcessSection(arcconf_reader, ProcessBatteryInfo);
                         break;
                 }
             }
+            arcconf_reader.Close();
             arcconf_output.Close();
-            return;
+            return 0;
         }
     }
     static void ProcessSection(StreamReader output, LineFunc linefunc)
@@ -76,7 +89,7 @@ internal class Program
         do
         {
             line = output.ReadLine() ?? "";
-            if (line.Contains(":"))
+            if (line.Contains(':'))
             {
                 linefunc(line.Trim().Split(':')[0].Trim(), line.Trim().Split(':')[1].Trim());
             }
@@ -124,17 +137,18 @@ internal class Program
         }
         return;
     }
-    static void GetSmartInfo()
+    static int GetSmartInfo()
     {
-        StreamReader? arcconf_output = GetArcconfOutput("getsmartstats 1");
+        MemoryStream? arcconf_output = GetArcconfOutput("getsmartstats 1");
         if (arcconf_output == null)
         {
             System.Console.Error.WriteLine("Failed to get arcconf getsmartstats output");
-            return;
+            return 1;
         }
         else
         {
-            while (!arcconf_output.EndOfStream)
+            StreamReader arcconf_reader = new StreamReader(arcconf_output);
+            while (!arcconf_reader.EndOfStream)
             {
                 XmlReaderSettings xmlreadersettings = new XmlReaderSettings();
                 xmlreadersettings.ConformanceLevel = ConformanceLevel.Fragment;
@@ -142,12 +156,12 @@ internal class Program
                 XmlReader reader;
                 try
                 {
-                    reader = XmlReader.Create(arcconf_output, xmlreadersettings);
+                    reader = XmlReader.Create(arcconf_reader, xmlreadersettings);
                 }
                 catch (Exception ex)
                 {
                     System.Console.Error.WriteLine("Failed to create XML reader: " + ex.Message);
-                    return;
+                    return 1;
                 }
                 while (reader.Read())
                 {
@@ -158,8 +172,9 @@ internal class Program
                 }
                 reader.Close();
             }
+            arcconf_reader.Close();
             arcconf_output.Close();
-            return;
+            return 0;
         }
     }
     static void ProcessDriveSmartInfo(XmlReader reader, string? drive)
