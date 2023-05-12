@@ -18,14 +18,14 @@ To use this textfile collector, add a cronjob for root user which redirect adapt
 ```
 */5 * * * * /usr/local/bin/adaptec_prometheus >/var/lib/prometheus/node-exporter/adaptec_raid.prom
 ```
-A sample Ansible tasks to deploy this collector may look like this (correct the paths in accordance with your setup):
+Sample Ansible tasks to deploy this collector may look like this (correct the paths in accordance with your setup):
 ```
 - name: Adaptec Text Collector
   become: true
   block:
     - name: Install arcconf
       ansible.builtin.copy:
-        src: ~/.ansible_temp/node_exporter/arcconf
+        src: /home/{{ ansible_user }}/.ansible_temp/node_exporter/arcconf
         dest: /usr/local/bin/arcconf
         mode: 0755
     - name: Install collector
