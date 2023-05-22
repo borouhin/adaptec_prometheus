@@ -1,25 +1,27 @@
-﻿using System.ComponentModel;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
 using System.Xml;
 
 namespace adaptec_prometheus;
 
-internal class Program
+internal static class Program
 {
-    static string arcconf_path = "/usr/local/bin/arcconf";
-    delegate void LineFunc(string param, string value);
-    static int Main(string[] args)
+    private const string _arcconfPath = "/usr/local/bin/arcconf";
+
+    private delegate void LineFunc(string param, string value);
+
+    private static int Main()
     {
         return GetMainInfo() | GetSmartInfo();
     }
-    static MemoryStream? GetArcconfOutput(string args)
+
+    private static MemoryStream? GetArcconfOutput(string args)
     {
         Process process = new()
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = arcconf_path,
+                FileName = _arcconfPath,
                 Arguments = args,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -33,56 +35,57 @@ internal class Program
         }
         catch (Exception ex)
         {
-            System.Console.Error.WriteLine("Failed to start arcconf: " + ex.Message);
+            Console.Error.WriteLine("Failed to start arcconf: " + ex.Message);
             return null;
         }
         bool exited = process.WaitForExit(30000);
         if (!exited)
         {
-            System.Console.Error.WriteLine("arcconf timed out");
+            Console.Error.WriteLine("arcconf timed out");
             return null;
         }
-        if (process.ExitCode != 0)
+
+        if (process.ExitCode == 0)
         {
-            System.Console.Error.WriteLine("arcconf exited with code {0}", process.ExitCode);
-            return null;
+            return new MemoryStream(Encoding.UTF8.GetBytes(process.StandardOutput.ReadToEnd().ToArray()));
         }
-        return new MemoryStream(Encoding.UTF8.GetBytes(process.StandardOutput.ReadToEnd().ToArray()));
+        Console.Error.WriteLine("arcconf exited with code {0}", process.ExitCode);
+        return null;
     }
-    static int GetMainInfo()
+
+    private static int GetMainInfo()
     {
-        MemoryStream? arcconf_output = GetArcconfOutput("getconfig 1");
-        if (arcconf_output == null)
+        MemoryStream? arcconfOutput = GetArcconfOutput("getconfig 1");
+        if (arcconfOutput == null)
         {
-            System.Console.WriteLine("adaptec_raid_is_optimal 0");
-            System.Console.Error.WriteLine("Failed to get arcconf getconfig output");
+            Console.WriteLine("adaptec_raid_is_optimal 0");
+            Console.Error.WriteLine("Failed to get arcconf getconfig output");
             return 1;
         }
-        else
+
+        StreamReader arcconfReader = new(arcconfOutput);
+        while (!arcconfReader.EndOfStream)
         {
-            StreamReader arcconf_reader = new(arcconf_output);
-            while (!arcconf_reader.EndOfStream)
+            string line = arcconfReader.ReadLine() ?? "";
+            switch (line.Trim())
             {
-                string line = arcconf_reader.ReadLine() ?? "";
-                switch (line.Trim())
-                {
-                    case "Controller information":
-                        ProcessSection(arcconf_reader, ProcessControllerInfo);
-                        break;
-                    case "RAID Properties":
-                        ProcessSection(arcconf_reader, ProcessLDInfo);
-                        break;
-                    case "Controller Battery Information":
-                        ProcessSection(arcconf_reader, ProcessBatteryInfo);
-                        break;
-                }
+                case "Controller information":
+                    ProcessSection(arcconfReader, ProcessControllerInfo);
+                    break;
+                case "RAID Properties":
+                    ProcessSection(arcconfReader, ProcessLdInfo);
+                    break;
+                case "Controller Battery Information":
+                    ProcessSection(arcconfReader, ProcessBatteryInfo);
+                    break;
             }
-            arcconf_reader.Close();
-            arcconf_output.Close();
-            return 0;
         }
+        arcconfReader.Close();
+        arcconfOutput.Close();
+        return 0;
     }
-    static void ProcessSection(StreamReader output, LineFunc linefunc)
+
+    private static void ProcessSection(TextReader output, LineFunc linefunc)
     {
         output.ReadLine();
         string line;
@@ -94,91 +97,90 @@ internal class Program
                 linefunc(line.Trim().Split(':')[0].Trim(), line.Trim().Split(':')[1].Trim());
             }
         } while (!line.Trim().StartsWith("---") && line != "");
-        return;
     }
-    static void ProcessControllerInfo(string param, string value)
+
+    private static void ProcessControllerInfo(string param, string value)
     {
         switch (param)
         {
             case "Controller Status":
-                System.Console.WriteLine("adaptec_raid_is_optimal {0}", (value == "Optimal") ? 1 : 0);
+                Console.WriteLine("adaptec_raid_is_optimal {0}", value == "Optimal" ? 1 : 0);
                 break;
             case "Temperature":
-                System.Console.WriteLine("adaptec_raid_temperature {0}", value.Trim().Split(' ')[0]);
+                Console.WriteLine("adaptec_raid_temperature {0}", value.Trim().Split(' ')[0]);
                 break;
             case "Defunct disk drive count":
-                System.Console.WriteLine("adaptec_raid_defunct_drives {0}", value.Trim());
+                Console.WriteLine("adaptec_raid_defunct_drives {0}", value.Trim());
                 break;
         }
-        return;
     }
-    static void ProcessLDInfo(string param, string value)
+
+    private static void ProcessLdInfo(string param, string value)
     {
         switch (param)
         {
             case "Logical devices/Failed/Degraded":
-                System.Console.WriteLine("adaptec_raid_ld_total {0}", value.Split('/')[0]);
-                System.Console.WriteLine("adaptec_raid_ld_failed {0}", value.Split('/')[1]);
-                System.Console.WriteLine("adaptec_raid_ld_degraded {0}", value.Split('/')[2]);
+                Console.WriteLine("adaptec_raid_ld_total {0}", value.Split('/')[0]);
+                Console.WriteLine("adaptec_raid_ld_failed {0}", value.Split('/')[1]);
+                Console.WriteLine("adaptec_raid_ld_degraded {0}", value.Split('/')[2]);
                 break;
         }
-        return;
     }
-    static void ProcessBatteryInfo(string param, string value)
+
+    private static void ProcessBatteryInfo(string param, string value)
     {
         switch (param)
         {
             case "Status":
-                System.Console.WriteLine("adaptec_raid_battery_is_optimal {0}", (value == "Optimal") ? 1 : 0);
+                Console.WriteLine("adaptec_raid_battery_is_optimal {0}", value == "Optimal" ? 1 : 0);
                 break;
             case "Over temperature":
-                System.Console.WriteLine("adaptec_raid_battery_temp_is_ok {0}", (value == "No") ? 1 : 0);
+                Console.WriteLine("adaptec_raid_battery_temp_is_ok {0}", value == "No" ? 1 : 0);
                 break;
         }
-        return;
     }
-    static int GetSmartInfo()
+
+    private static int GetSmartInfo()
     {
-        MemoryStream? arcconf_output = GetArcconfOutput("getsmartstats 1");
-        if (arcconf_output == null)
+        MemoryStream? arcconfOutput = GetArcconfOutput("getsmartstats 1");
+        if (arcconfOutput == null)
         {
-            System.Console.Error.WriteLine("Failed to get arcconf getsmartstats output");
+            Console.Error.WriteLine("Failed to get arcconf getsmartstats output");
             return 1;
         }
-        else
+
+        StreamReader arcconfReader = new(arcconfOutput);
+        XmlReaderSettings xmlreadersettings = new()
         {
-            StreamReader arcconf_reader = new(arcconf_output);
-            XmlReaderSettings xmlreadersettings = new()
-            {
-                ConformanceLevel = ConformanceLevel.Fragment,
-                DtdProcessing = DtdProcessing.Prohibit
-            };
-            XmlReader reader;
-            try
-            {
-                reader = XmlReader.Create(arcconf_reader, xmlreadersettings);
-            }
-            catch (Exception ex)
-            {
-                System.Console.Error.WriteLine("Failed to create XML reader: " + ex.Message);
-                arcconf_reader.Close();
-                arcconf_output.Close();
-                return 1;
-            }
-            while (reader.Read())
-            {
-                if ((reader.Name == "PhysicalDriveSmartStats") && reader.IsStartElement())
-                {
-                    ProcessDriveSmartInfo(reader, reader["id"]);
-                }
-            }
-            reader.Close();
-            arcconf_reader.Close();
-            arcconf_output.Close();
-            return 0;
+            ConformanceLevel = ConformanceLevel.Fragment,
+            DtdProcessing = DtdProcessing.Prohibit
+        };
+        XmlReader reader;
+        try
+        {
+            reader = XmlReader.Create(arcconfReader, xmlreadersettings);
         }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("Failed to create XML reader: " + ex.Message);
+            arcconfReader.Close();
+            arcconfOutput.Close();
+            return 1;
+        }
+        while (reader.Read())
+        {
+            if (reader.Name == "PhysicalDriveSmartStats" && reader.IsStartElement())
+            {
+                ProcessDriveSmartInfo(reader, reader["id"]);
+            }
+        }
+        reader.Close();
+        arcconfReader.Close();
+        arcconfOutput.Close();
+        return 0;
     }
-    static void ProcessDriveSmartInfo(XmlReader reader, string? drive)
+
+    private static void ProcessDriveSmartInfo(XmlReader reader, string? drive)
     {
         while (reader.Read() && reader.Name != "PhysicalDriveSmartStats")
         {
@@ -187,6 +189,5 @@ internal class Program
                 Console.WriteLine("adaptec_smart_attribute{{code=\"{0}\",name=\"{1}\",drive=\"{2}\"}} {3}", reader["id"], reader["name"], drive ?? "", reader["rawValue"]);
             }
         }
-        return;
     }
 }

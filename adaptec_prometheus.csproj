@@ -8,4 +8,8 @@
     <StartupObject>adaptec_prometheus.Program</StartupObject>
   </PropertyGroup>
 
+  <ItemGroup>
+    <None Remove="testEnvironments.json" />
+  </ItemGroup>
+
 </Project>
